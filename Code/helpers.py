@@ -574,8 +574,69 @@ def ppcc_test(residuals, alpha=0.05):
     return {"r": r, "cv": cv, "reject": r < cv, "n": n}
 
 # =============================================================================
-# SECTION 4 — Simulation  (stubs — implemented in task4 branch)
+# SECTION 4 — Simulation
 # =============================================================================
+
+def simulate_from_model(result, n_steps=120, n_realizations=10, seed=42):
+    """
+    Generate synthetic realizations from a fitted AR or ARMA model.
+
+    Draws innovation shocks from N(0, σ²) where σ² is the fitted residual
+    variance, then filters them through the AR/MA polynomials using
+    ArmaProcess.generate_sample.
+
+    Parameters
+    ----------
+    result : statsmodels ARIMAResults
+        Fitted model from fit_ar() or fit_arma().
+    n_steps : int
+        Length of each synthetic series in months (default 120 = 10 years).
+    n_realizations : int
+        Number of independent realizations to generate (default 10).
+    seed : int
+        NumPy random seed for reproducibility (default 42).
+
+    Returns
+    -------
+    np.ndarray, shape (n_realizations, n_steps)
+        Each row is one independent synthetic realization.
+    """
+    np.random.seed(seed)
+    ar      = np.r_[1, -result.arparams]
+    ma      = np.r_[1,  result.maparams]
+    sigma   = float(np.sqrt(result.params["sigma2"]))
+    process = ArmaProcess(ar, ma)
+    return np.vstack([
+        process.generate_sample(nsample=n_steps, scale=sigma)
+        for _ in range(n_realizations)
+    ])
+
+
+def sediment_mass(Q_monthly, C_monthly):
+    """
+    Compute monthly sediment mass flux M(t) = Q(t) · C(t) over the
+    overlapping record of the two series.
+
+    Unit derivation:
+        Q [m³/s] × C [g/L] × (1000 L/m³) × (1 kg / 1000 g) = Q × C  [kg/s]
+    The conversion factors cancel, so M [kg/s] = Q × C numerically.
+
+    Parameters
+    ----------
+    Q_monthly : pd.Series
+        Monthly discharge [m³/s] with DatetimeIndex.
+    C_monthly : pd.Series
+        Monthly SSC [g/L] with DatetimeIndex.
+
+    Returns
+    -------
+    pd.Series
+        Monthly sediment mass flux [kg/s] over the common non-NaN period.
+    """
+    common = Q_monthly.index.intersection(C_monthly.index)
+    M = (Q_monthly.reindex(common) * C_monthly.reindex(common)).dropna()
+    M.name = "M_kg_s"
+    return M
 
 # =============================================================================
 # SECTION 5 — Independence Test  (stubs — implemented in task5 branch)
