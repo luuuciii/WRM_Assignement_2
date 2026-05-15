@@ -369,8 +369,11 @@ def fit_ar(series, order):
         Fitted model result object. Key attributes: .params, .aic, .bic,
         .resid, .summary().
     """
+    import warnings
     valid = series.dropna()
-    result = ARIMA(valid, order=(order, 0, 0)).fit()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = ARIMA(valid, order=(order, 0, 0)).fit()
     return result
 
 
@@ -393,8 +396,11 @@ def fit_arma(series, p, q):
         Fitted model result object. Key attributes: .params, .aic, .bic,
         .resid, .summary().
     """
+    import warnings
     valid = series.dropna()
-    result = ARIMA(valid, order=(p, 0, q)).fit()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = ARIMA(valid, order=(p, 0, q)).fit()
     return result
 
 
@@ -420,6 +426,7 @@ def aic_grid_search(series, max_p=8, max_q=4):
         Columns: p, q, AIC, BIC — sorted by AIC ascending.
         The first row is the AIC-optimal order.
     """
+    import warnings
     valid = series.dropna()
     rows = []
     for p in range(1, max_p + 1):
@@ -427,7 +434,9 @@ def aic_grid_search(series, max_p=8, max_q=4):
             if p + q > 8:
                 continue
             try:
-                res = ARIMA(valid, order=(p, 0, q)).fit()
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    res = ARIMA(valid, order=(p, 0, q)).fit()
                 rows.append({"p": p, "q": q, "AIC": round(res.aic, 2), "BIC": round(res.bic, 2)})
             except Exception:
                 pass
