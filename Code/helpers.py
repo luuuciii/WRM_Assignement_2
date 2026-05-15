@@ -165,29 +165,40 @@ from statsmodels.tsa.stattools import acf as sm_acf, pacf as sm_pacf
 from statsmodels.tsa.arima.model import ARIMA
 
 
-def remove_seasonal_means(series):
+def remove_seasonal_means(series, standardise=True):
     """
     Remove the seasonal cycle from a monthly series by subtracting the
-    climatological mean for each calendar month.
+    climatological mean for each calendar month, and optionally dividing by
+    the climatological standard deviation (monthly standardisation).
 
     Parameters
     ----------
     series : pd.Series
         Monthly timeseries with DatetimeIndex. May contain NaN.
+    standardise : bool
+        If True (default), also divide by the monthly std, producing a
+        dimensionless anomaly [–] with unit variance per calendar month.
+        Set to False for series with very small monthly std values (e.g. C).
 
     Returns
     -------
     anomaly : pd.Series
-        Seasonally adjusted series (original units). Same index as input.
+        Seasonally adjusted series. Dimensionless [–] if standardise=True,
+        original units if standardise=False.
     clim : pd.Series
         Monthly climatological mean, index = 1..12.
+    monthly_std : pd.Series
+        Monthly climatological standard deviation, index = 1..12.
     """
     df = series.to_frame(name="val")
     df["month"] = df.index.month
-    clim = df.groupby("month")["val"].mean()
+    clim        = df.groupby("month")["val"].mean()
+    monthly_std = df.groupby("month")["val"].std()
     anomaly = series - series.index.to_series().apply(lambda t: clim[t.month])
+    if standardise:
+        anomaly = anomaly / series.index.to_series().apply(lambda t: monthly_std[t.month])
     anomaly.name = series.name
-    return anomaly, clim
+    return anomaly, clim, monthly_std
 
 
 def _contiguous_segments(series, min_len=30):
@@ -639,5 +650,70 @@ def sediment_mass(Q_monthly, C_monthly):
     return M
 
 # =============================================================================
-# SECTION 5 — Independence Test  (stubs — implemented in task5 branch)
+# SECTION 5 — Independence Test
 # =============================================================================
+
+def correlation_test(x_series, y_series):
+    """
+    Compute Pearson and Spearman correlations between two monthly series
+    over their common non-NaN overlap period.
+
+    Parameters
+    ----------
+    x_series, y_series : pd.Series with DatetimeIndex
+
+    Returns
+    -------
+    dict with keys:
+        n           (int)   : number of paired observations
+        pearson_r   (float) : Pearson r
+        pearson_p   (float) : two-sided p-value for Pearson r
+        spearman_r  (float) : Spearman ρ
+        spearman_p  (float) : two-sided p-value for Spearman ρ
+        x, y        (pd.Series) : aligned paired values used in the test
+    """
+    common = x_series.index.intersection(y_series.index)
+    df = pd.DataFrame({"x": x_series.reindex(common),
+                        "y": y_series.reindex(common)}).dropna()
+    r_p, p_p = stats.pearsonr(df["x"], df["y"])
+    r_s, p_s = stats.spearmanr(df["x"], df["y"])
+    return {
+        "n": len(df),
+        "pearson_r": r_p, "pearson_p": p_p,
+        "spearman_r": r_s, "spearman_p": p_s,
+        "x": df["x"], "y": df["y"],
+    }
+
+
+def chi2_independence_test(x_series, y_series, n_bins=5):
+    """
+    Chi-squared test of independence between two monthly series using a
+    quantile-based contingency table.
+
+    Both series are discretised into n_bins equal-frequency bins; the
+    resulting contingency table is tested with Pearson's chi-squared test.
+
+    Parameters
+    ----------
+    x_series, y_series : pd.Series with DatetimeIndex
+    n_bins : int
+        Number of quantile bins (default 5, i.e. quintiles).
+
+    Returns
+    -------
+    dict with keys:
+        chi2    (float) : chi-squared test statistic
+        p_value (float) : p-value (H0: x and y are independent)
+        dof     (int)   : degrees of freedom
+        reject  (bool)  : True if H0 rejected at 5% level
+        n       (int)   : number of paired observations used
+    """
+    common = x_series.index.intersection(y_series.index)
+    df = pd.DataFrame({"x": x_series.reindex(common),
+                        "y": y_series.reindex(common)}).dropna()
+    x_bins = pd.qcut(df["x"], n_bins, labels=False, duplicates="drop")
+    y_bins = pd.qcut(df["y"], n_bins, labels=False, duplicates="drop")
+    contingency = pd.crosstab(x_bins, y_bins)
+    chi2, p, dof, _ = stats.chi2_contingency(contingency)
+    return {"chi2": chi2, "p_value": p, "dof": dof,
+            "reject": p < 0.05, "n": len(df)}
