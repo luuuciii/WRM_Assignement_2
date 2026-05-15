@@ -167,23 +167,20 @@ from statsmodels.tsa.arima.model import ARIMA
 
 def remove_seasonal_means(series):
     """
-    Subtract the monthly climatological mean from each observation, removing
-    the seasonal cycle from a zero-mean detrended series.
-
-    For each calendar month (1–12) the mean is computed across all years
-    present in the record, then subtracted from every observation of that month.
+    Remove the seasonal cycle from a monthly series by subtracting the
+    climatological mean for each calendar month.
 
     Parameters
     ----------
     series : pd.Series
-        Zero-mean monthly timeseries with DatetimeIndex. May contain NaN.
+        Monthly timeseries with DatetimeIndex. May contain NaN.
 
     Returns
     -------
     anomaly : pd.Series
-        Seasonally adjusted anomaly series (same index, NaN preserved).
+        Seasonally adjusted series (original units). Same index as input.
     clim : pd.Series
-        Monthly climatology (index = 1..12, values = mean for each month).
+        Monthly climatological mean, index = 1..12.
     """
     df = series.to_frame(name="val")
     df["month"] = df.index.month
@@ -444,8 +441,137 @@ def aic_grid_search(series, max_p=8, max_q=4):
 
 
 # =============================================================================
-# SECTION 3 — Application & Evaluation  (stubs — implemented in task3 branch)
+# SECTION 3 — Application & Evaluation
 # =============================================================================
+
+from statsmodels.tsa.arima_process import ArmaProcess
+from statsmodels.stats.diagnostic import acorr_ljungbox
+
+
+def theoretical_acf(result, max_lags=36):
+    """
+    Compute the theoretical ACF implied by a fitted AR or ARMA model.
+
+    Uses the AR and MA polynomial roots of the fitted statsmodels result
+    to construct the corresponding ArmaProcess and compute its ACF.
+
+    Parameters
+    ----------
+    result : statsmodels ARIMAResults
+        Fitted model result from fit_ar() or fit_arma().
+    max_lags : int
+        Number of lags to compute (default 36).
+
+    Returns
+    -------
+    np.ndarray, shape (max_lags + 1,)
+        Theoretical ACF values at lags 0, 1, …, max_lags.
+    """
+    ar = np.r_[1, -result.arparams]
+    ma = np.r_[1,  result.maparams]
+    process = ArmaProcess(ar, ma)
+    return process.acf(max_lags + 1)
+
+
+def residual_acf(result, max_lags=36):
+    """
+    Compute the empirical ACF of the model residuals.
+
+    Parameters
+    ----------
+    result : statsmodels ARIMAResults
+        Fitted model result from fit_ar() or fit_arma().
+    max_lags : int
+        Maximum lag to compute (default 36).
+
+    Returns
+    -------
+    lags : np.ndarray
+        Lag indices 0, 1, …, max_lags.
+    acf_vals : np.ndarray
+        ACF of residuals at each lag.
+    ci_band : float
+        95% CI half-width (±1.96 / √N).
+    """
+    resid = result.resid.dropna().values
+    acf_vals = sm_acf(resid, nlags=max_lags, fft=True)
+    ci_band  = 1.96 / np.sqrt(len(resid))
+    return np.arange(max_lags + 1), acf_vals, ci_band
+
+
+def ljung_box_test(result, lags=20):
+    """
+    Portmanteau (Ljung-Box) test for residual independence.
+
+    Tests H₀: residuals are white noise up to the given lag.
+    Rejection (p < 0.05) indicates remaining autocorrelation.
+
+    Parameters
+    ----------
+    result : statsmodels ARIMAResults
+        Fitted model result from fit_ar() or fit_arma().
+    lags : int
+        Number of lags to include in the test statistic (default 20).
+
+    Returns
+    -------
+    dict with keys:
+        lb_stat  (float) : Ljung-Box Q statistic.
+        lb_pval  (float) : p-value of the test.
+        reject   (bool)  : True if H₀ is rejected at 5% significance.
+    """
+    resid  = result.resid.dropna().values
+    out    = acorr_ljungbox(resid, lags=[lags], return_df=True)
+    stat   = float(out["lb_stat"].iloc[0])
+    pval   = float(out["lb_pvalue"].iloc[0])
+    return {"lb_stat": stat, "lb_pval": pval, "reject": pval < 0.05}
+
+
+def ppcc_test(residuals, alpha=0.05):
+    """
+    Probability Plot Correlation Coefficient (PPCC) test for normality.
+
+    Computes the correlation between the sorted residuals and the expected
+    normal order statistics using Filliben's (1975) plotting positions.
+    Rejects normality if the PPCC falls below the critical value at the
+    given significance level.
+
+    Parameters
+    ----------
+    residuals : array-like
+        Residual series (NaN values are dropped).
+    alpha : float
+        Significance level (default 0.05).
+
+    Returns
+    -------
+    dict with keys:
+        r        (float) : PPCC correlation coefficient.
+        cv       (float) : Critical value at the given alpha.
+        reject   (bool)  : True if normality is rejected (r < cv).
+        n        (int)   : Number of residuals used.
+    """
+    x = np.sort(np.asarray(residuals, dtype=float))
+    x = x[~np.isnan(x)]
+    n = len(x)
+
+    # Filliben plotting positions
+    i  = np.arange(1, n + 1, dtype=float)
+    m  = np.where(i == 1, 1 - 0.5 ** (1.0 / n),
+         np.where(i == n, 0.5 ** (1.0 / n),
+                  (i - 0.3175) / (n + 0.365)))
+    z  = stats.norm.ppf(m)
+    r, _ = stats.pearsonr(x, z)
+
+    # Critical values (Filliben 1975, α = 0.05, one-sided)
+    _ns  = np.array([10,  15,  20,  25,  30,  40,  50,
+                     60,  75, 100, 150, 200, 300, 500])
+    _cvs = np.array([0.9347, 0.9426, 0.9503, 0.9560, 0.9600,
+                     0.9664, 0.9707, 0.9741, 0.9771, 0.9822,
+                     0.9873, 0.9905, 0.9935, 0.9954])
+    cv = float(np.interp(n, _ns, _cvs))
+
+    return {"r": r, "cv": cv, "reject": r < cv, "n": n}
 
 # =============================================================================
 # SECTION 4 — Simulation  (stubs — implemented in task4 branch)
