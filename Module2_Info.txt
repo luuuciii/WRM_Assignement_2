@@ -1,0 +1,18 @@
+Dear Students,
+
+It has come to my attention that some of you are struggling with the data available for Module 2 project. I will tell you how to proceed. SSC data have quite long gaps in the data recording, in particular:
+Diepoldsau in 2019
+Gisingen in 2009
+This is normal for timeseries and the data recordings are indeed missing.  My suggestion is to calculate the ACF and the PACF function before and after these gaps separately and then average them out into a unique one. Maybe could be of interest to comment if they are different and what would this mean. 
+
+2. The monthly data have a strong seasonal correlation. Normally this would be treated with stochastic models such as PAR and PARMA ( Periodic AR and Periodic ARMA). These models where not taught in class, so you are left with AR and ARMA. 
+There are to my knowledge two possible solution to this problem, either of which is not wrong per-se, just leads to different results. As long as you justify your choices and show strong mathematical reasoning both will be taken into account as correct. Pursue just one of the two please. 
+
+AVOID overfitting, and balance model parsimosiuness. If the distribution of values is stationary and the data are seasonal, that means that your AR or ARMA model should not be more than a 12th order (12th included). Removing linear trends before modelling is therefore fundamental. Also discuss the stationarity of the data before modelling.
+
+Hope this post answers the questions so far,
+
+Have a good week,
+
+Ludovico Agostini
+
